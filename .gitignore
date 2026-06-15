@@ -1,0 +1,16 @@
+venv/
+__pycache__/
+*.pyc
+
+.env
+
+chroma_db/
+logs/
+
+data/processed/
+data/evaluations/
+
+.idea/
+.vscode/
+
+*.sqlite3
