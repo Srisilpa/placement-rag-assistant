@@ -136,19 +136,28 @@ Ask questions about:
 )
 
 # --------------------------------------------------
-# INPUT
+# INPUT FORM
 # --------------------------------------------------
 
-question = st.text_input(
-    "Ask a Question",
-    placeholder="Example: What is the highest package offered?"
-)
+with st.form(
+    "question_form",
+    clear_on_submit=False
+):
+
+    question = st.text_input(
+        "Ask a Question",
+        placeholder="Example: What is the highest package offered?"
+    )
+
+    submitted = st.form_submit_button(
+        "🚀 Submit"
+    )
 
 # --------------------------------------------------
 # SUBMIT
 # --------------------------------------------------
 
-if st.button("🚀 Submit"):
+if submitted:
 
     if not question.strip():
 
