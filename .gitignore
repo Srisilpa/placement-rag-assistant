@@ -1,16 +1,51 @@
-venv/
+# =====================
+# Python
+# =====================
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
 
+# =====================
+# Virtual Environment
+# =====================
+venv/
+env/
+.venv/
+
+# =====================
+# Environment Variables
+# =====================
 .env
 
-chroma_db/
-logs/
+# =====================
+# Streamlit
+# =====================
+.streamlit/
 
-data/processed/
-data/evaluations/
+# =====================
+# Data / Local files
+# (DO NOT push runtime or generated files)
+# =====================
+chat_history.json
+question_frequency.json
+data/
+*.log
 
-.idea/
+# =====================
+# OS files
+# =====================
+.DS_Store
+Thumbs.db
+
+# =====================
+# IDEs
+# =====================
 .vscode/
+.idea/
 
-*.sqlite3
+# =====================
+# FAISS / Index files (optional - usually regenerate)
+# =====================
+*.faiss
+*.pkl
