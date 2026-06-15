@@ -4,10 +4,13 @@ from datetime import datetime
 from src.vectordb.retriever import Retriever
 from src.llm.response_generator import ResponseGenerator
 
+from src.memory.cache_manager import CacheManager
+from src.memory.conversation_memory import ConversationMemory
 
-# -----------------------------
-# Page Config
-# -----------------------------
+
+# --------------------------------------------------
+# PAGE CONFIG
+# --------------------------------------------------
 
 st.set_page_config(
     page_title="Placement Intelligence Assistant",
@@ -15,16 +18,26 @@ st.set_page_config(
     layout="wide"
 )
 
-# -----------------------------
-# Session State
-# -----------------------------
+# --------------------------------------------------
+# OBJECTS
+# --------------------------------------------------
+
+cache = CacheManager()
+memory = ConversationMemory()
+
+# --------------------------------------------------
+# SESSION STATE
+# --------------------------------------------------
 
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
 
-# -----------------------------
-# Sidebar
-# -----------------------------
+if "question_frequency" not in st.session_state:
+    st.session_state.question_frequency = {}
+
+# --------------------------------------------------
+# SIDEBAR
+# --------------------------------------------------
 
 with st.sidebar:
 
@@ -43,97 +56,218 @@ with st.sidebar:
 
 ✅ Context Retrieval
 
+✅ Cache Memory
+
+✅ Conversation Memory
+
 ✅ Placement Analytics
 
 ✅ Eligibility Queries
-
-✅ Package Analysis
 
 ✅ Feedback Collection
 """)
 
     st.markdown("---")
 
+    st.subheader("🔥 Top 5 Questions")
+
+    if st.session_state.question_frequency:
+
+        top_questions = sorted(
+            st.session_state.question_frequency.items(),
+            key=lambda x: x[1],
+            reverse=True
+        )[:5]
+
+        for q, count in top_questions:
+            st.write(f"**{count}x** - {q}")
+
+    else:
+        st.caption("No questions asked yet.")
+
+    st.markdown("---")
+
+    st.subheader("🕘 Recent Questions")
+
+    recent_questions = st.session_state.chat_history[-5:]
+
+    if recent_questions:
+
+        for item in reversed(recent_questions):
+
+            st.caption(
+                item["question"]
+            )
+
+    else:
+
+        st.caption(
+            "No history yet."
+        )
+
+    st.markdown("---")
+
     if st.button("🗑 Clear Chat"):
 
         st.session_state.chat_history = []
+        st.session_state.question_frequency = {}
 
         st.rerun()
 
-# -----------------------------
-# Header
-# -----------------------------
+# --------------------------------------------------
+# HEADER
+# --------------------------------------------------
 
-st.title("🎓 Placement Intelligence Assistant")
-
-st.markdown(
-    "Ask questions about placements, companies, packages, eligibility criteria, hiring trends, and statistics."
+st.title(
+    "🎓 Placement Intelligence Assistant"
 )
 
-# -----------------------------
-# Input
-# -----------------------------
+st.markdown(
+    """
+Ask questions about:
+
+- Placement Packages
+- Company Eligibility
+- Hiring Trends
+- CGPA Requirements
+- Placement Statistics
+- Placement Insights
+"""
+)
+
+# --------------------------------------------------
+# INPUT
+# --------------------------------------------------
 
 question = st.text_input(
     "Ask a Question",
     placeholder="Example: What is the highest package offered?"
 )
 
-# -----------------------------
-# Submit Button
-# -----------------------------
+# --------------------------------------------------
+# SUBMIT
+# --------------------------------------------------
 
 if st.button("🚀 Submit"):
 
     if not question.strip():
 
-        st.warning("Please enter a question.")
+        st.warning(
+            "Please enter a question."
+        )
 
     else:
 
         try:
 
-            # -----------------------------
-            # Retrieve Context
-            # -----------------------------
+            cache_hit = False
 
-            with st.spinner("Retrieving relevant information..."):
+            # --------------------------------
+            # QUESTION FREQUENCY
+            # --------------------------------
 
-                retriever = Retriever()
-
-                contexts = retriever.retrieve(question)
-
-            # -----------------------------
-            # Generate Answer
-            # -----------------------------
-
-            with st.spinner("Generating answer..."):
-
-                generator = ResponseGenerator()
-
-                answer = generator.answer(
+            st.session_state.question_frequency[
+                question
+            ] = (
+                st.session_state.question_frequency.get(
                     question,
-                    contexts
+                    0
+                )
+                + 1
+            )
+
+            # --------------------------------
+            # CACHE CHECK
+            # --------------------------------
+
+            if cache.exists(question):
+
+                answer = cache.get(
+                    question
                 )
 
-            # -----------------------------
-            # Confidence Score
-            # -----------------------------
+                contexts = []
+
+                cache_hit = True
+
+            else:
+
+                # ----------------------------
+                # RETRIEVE CONTEXT
+                # ----------------------------
+
+                with st.spinner(
+                    "Retrieving Context..."
+                ):
+
+                    retriever = Retriever()
+
+                    results = retriever.retrieve(
+                        question
+                    )
+
+                    if isinstance(results, dict):
+
+                        contexts = results.get(
+                            "documents",
+                            []
+                        )
+
+                    else:
+
+                        contexts = results
+
+                # ----------------------------
+                # MEMORY CONTEXT
+                # ----------------------------
+
+                memory_context = (
+                    memory.get_recent_context(
+                        st.session_state.chat_history[-3:]
+                    )
+                )
+
+                # ----------------------------
+                # GENERATE ANSWER
+                # ----------------------------
+
+                with st.spinner(
+                    "Generating Answer..."
+                ):
+
+                    generator = ResponseGenerator()
+
+                    answer = generator.answer(
+                        question
+                        + "\n\nConversation Context:\n"
+                        + memory_context,
+                        contexts
+                    )
+
+                cache.set(
+                    question,
+                    answer
+                )
+
+            # --------------------------------
+            # CONFIDENCE
+            # --------------------------------
 
             confidence = min(
                 95,
                 70 + (len(contexts) * 5)
             )
 
-            # -----------------------------
-            # Store Chat
-            # -----------------------------
+            # --------------------------------
+            # SAVE CHAT
+            # --------------------------------
 
             st.session_state.chat_history.append(
                 {
                     "question": question,
                     "answer": answer,
                     "contexts": contexts,
+                    "cache_hit": cache_hit,
                     "confidence": confidence,
                     "timestamp": datetime.now().strftime(
                         "%d-%m-%Y %H:%M:%S"
@@ -141,15 +275,17 @@ if st.button("🚀 Submit"):
                 }
             )
 
+            st.rerun()
+
         except Exception as e:
 
             st.error(
                 f"Error: {str(e)}"
             )
 
-# -----------------------------
-# Display Chat History
-# -----------------------------
+# --------------------------------------------------
+# DISPLAY HISTORY
+# --------------------------------------------------
 
 for item in reversed(
     st.session_state.chat_history
@@ -169,6 +305,18 @@ for item in reversed(
         item["answer"]
     )
 
+    if item["cache_hit"]:
+
+        st.info(
+            "⚡ Answer served from cache"
+        )
+
+    else:
+
+        st.info(
+            "📚 Answer generated using RAG"
+        )
+
     col1, col2 = st.columns(2)
 
     with col1:
@@ -184,55 +332,67 @@ for item in reversed(
             f"🕒 {item['timestamp']}"
         )
 
-    # -----------------------------
-    # Retrieved Context
-    # -----------------------------
+    # --------------------------------
+    # CONTEXT
+    # --------------------------------
 
     with st.expander(
         "📄 Retrieved Context"
     ):
 
-        for idx, chunk in enumerate(
-            item["contexts"]
-        ):
+        if item["contexts"]:
 
-            st.markdown(
-                f"### Chunk {idx+1}"
+            for i, chunk in enumerate(
+                item["contexts"]
+            ):
+
+                st.markdown(
+                    f"### Chunk {i+1}"
+                )
+
+                st.write(
+                    chunk
+                )
+
+        else:
+
+            st.caption(
+                "No context available."
             )
 
-            st.write(chunk)
+    # --------------------------------
+    # FEEDBACK
+    # --------------------------------
 
-    # -----------------------------
-    # Feedback
-    # -----------------------------
+    st.markdown(
+        "### Feedback"
+    )
 
-    st.markdown("### Feedback")
+    c1, c2 = st.columns(2)
 
-    fb1, fb2 = st.columns(2)
-
-    with fb1:
+    with c1:
 
         if st.button(
-            f"👍 Helpful ({item['timestamp']})"
+            f"👍 Helpful {item['timestamp']}"
         ):
 
             st.success(
                 "Thanks for your feedback!"
             )
 
-    with fb2:
+    with c2:
 
         if st.button(
-            f"👎 Not Helpful ({item['timestamp']})"
+            f"👎 Not Helpful {item['timestamp']}"
         ):
 
             st.warning(
                 "Feedback recorded."
             )
 
-# -----------------------------
-# Footer
-# -----------------------------
+# --------------------------------------------------
+# FOOTER
+# --------------------------------------------------
 
 st.markdown("---")
 
