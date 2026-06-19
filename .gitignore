@@ -21,6 +21,7 @@ env/
 # =====================
 # Streamlit
 # =====================
+.streamlit/
 .streamlit/secrets.toml
 
 # =====================
@@ -40,7 +41,7 @@ persist_directory/
 *.sqlite3
 
 # =====================
-# FAISS / Other Vector Stores
+# FAISS / Vector Indexes
 # =====================
 *.faiss
 *.pkl
