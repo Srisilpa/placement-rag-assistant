@@ -1,4 +1,11 @@
 from datetime import datetime
 
+
 def get_date():
-    return str(datetime.now())
+
+    now = datetime.now()
+
+    return (
+        f"Date: {now.strftime('%d-%m-%Y')}\n"
+        f"Time: {now.strftime('%H:%M:%S')}"
+    )

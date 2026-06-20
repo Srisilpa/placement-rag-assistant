@@ -17,10 +17,11 @@ from src.services.qa_service import answer_question
 from src.services.analytics_service import (
     get_top_questions,
     get_recent_questions,
-    clear_session_history,
-    get_total_questions
+    clear_session_history
 )
 from src.services.session_service import get_history
+
+from src.evaluation.ragas_evaluator import run_ragas
 
 
 # --------------------------------------------------
@@ -31,32 +32,27 @@ st.set_page_config(
     layout="wide"
 )
 
+st.title("🎯 Placement Intelligence System")
+st.caption("Ask placement-related questions from your dataset")
+
 
 # --------------------------------------------------
 # SESSION INIT
 # --------------------------------------------------
 if "session_id" not in st.session_state:
-    st.session_state.session_id = (
-        str(uuid.uuid4())
-        .replace("-", "")[:16]
-    )
+    st.session_state.session_id = str(uuid.uuid4()).replace("-", "")[:16]
 
 if "selected_question" not in st.session_state:
     st.session_state.selected_question = None
 
-if "last_context" not in st.session_state:
-    st.session_state.last_context = ""
+if "ragas_data" not in st.session_state:
+    st.session_state.ragas_data = {
+        "questions": [],
+        "answers": [],
+        "contexts": []
+    }
 
 session_id = st.session_state.session_id
-
-
-# --------------------------------------------------
-# HEADER
-# --------------------------------------------------
-st.title("🎯 Placement Intelligence System")
-st.caption(
-    "Ask placement-related questions from your dataset"
-)
 
 
 # --------------------------------------------------
@@ -67,19 +63,14 @@ st.sidebar.title("📊 Dashboard")
 st.sidebar.subheader("📁 Project Details")
 
 st.sidebar.info(
-    f"""
-Dataset : Placement_RAG_Dataset_Enhanced
-
-Vector DB : Chroma
-
-Retriever : Semantic Search
-
-LLM : Llama 3.1
-
-Questions Asked :
-{get_total_questions()}
+    """
+Dataset : Placement_RAG_Dataset_Enhanced  
+Vector DB : Chroma  
+Retriever : Semantic Search  
+LLM : Llama 3.1  
 """
 )
+
 
 # --------------------------------------------------
 # CLEAR CHAT
@@ -89,7 +80,11 @@ if st.sidebar.button("🧹 Clear Chat"):
     clear_session_history(session_id)
 
     st.session_state.selected_question = None
-    st.session_state.last_context = ""
+    st.session_state.ragas_data = {
+        "questions": [],
+        "answers": [],
+        "contexts": []
+    }
 
     st.rerun()
 
@@ -99,39 +94,13 @@ if st.sidebar.button("🧹 Clear Chat"):
 # --------------------------------------------------
 st.sidebar.subheader("🔥 Top 5 Questions")
 
-try:
+top_questions = get_top_questions(limit=5)
 
-    top_questions = get_top_questions(limit=5)
-
-    if top_questions:
-
-        for q in top_questions:
-
-            question = q.get(
-                "question",
-                "Unknown Question"
-            )
-
-            count = q.get(
-                "count",
-                0
-            )
-
-            st.sidebar.write(
-                f"**{count}x** - {question}"
-            )
-
-    else:
-
-        st.sidebar.info(
-            "No questions asked yet."
-        )
-
-except Exception as e:
-
-    st.sidebar.error(
-        f"Top Questions Error: {e}"
-    )
+if top_questions:
+    for q in top_questions:
+        st.sidebar.write(f"**{q.get('count',0)}x** - {q.get('question')}")
+else:
+    st.sidebar.info("No questions yet")
 
 
 # --------------------------------------------------
@@ -139,90 +108,63 @@ except Exception as e:
 # --------------------------------------------------
 st.sidebar.subheader("🕘 Recent Questions")
 
-try:
+recent_questions = get_recent_questions(session_id)
 
-    recent_questions = get_recent_questions(
-    session_id
-) 
+if recent_questions:
+    for i, q in enumerate(recent_questions):
+        with st.sidebar.expander(q.get("question","")[:60]):
 
-    if recent_questions:
+            st.write(q.get("answer",""))
 
-        for i, q in enumerate(recent_questions):
+            if st.button("Ask Again", key=f"recent_{i}"):
+                st.session_state.selected_question = q.get("question")
+                st.rerun()
+else:
+    st.sidebar.info("No recent questions")
 
-            question = q.get(
-                "question",
-                "Unknown Question"
-            )
 
-            answer = q.get(
-                "answer",
-                "No answer available"
-            )
+# --------------------------------------------------
+# RAGAS SECTION (SIDEBAR)
+# --------------------------------------------------
+st.sidebar.subheader("📊 RAGAS Evaluation")
 
-            with st.sidebar.expander(
-                question[:60]
-            ):
+if st.sidebar.button("Run Evaluation"):
 
-                st.write(answer)
-
-                if st.button(
-                    "Ask Again",
-                    key=f"recent_{i}"
-                ):
-                    st.session_state.selected_question = question
-                    st.rerun()
-
-    else:
-
-        st.sidebar.info(
-            "No recent questions."
+    try:
+        result = run_ragas(
+            st.session_state.ragas_data["questions"],
+            st.session_state.ragas_data["answers"],
+            st.session_state.ragas_data["contexts"]
         )
 
-except Exception as e:
+        st.sidebar.success("Evaluation Completed")
 
-    st.sidebar.error(
-        f"Recent Questions Error: {e}"
-    )
+        st.sidebar.metric("Faithfulness", result["faithfulness"])
+        st.sidebar.metric("Relevancy", result["answer_relevancy"])
+        st.sidebar.metric("Context Precision", result["context_precision"])
+
+    except Exception as e:
+        st.sidebar.error(f"RAGAS Error: {e}")
 
 
 # --------------------------------------------------
 # CHAT HISTORY
 # --------------------------------------------------
-try:
+history = get_history(session_id)
 
-    history = get_history(session_id)
+for msg in history:
+    with st.chat_message("user"):
+        st.write(msg.get("question",""))
 
-    for msg in history:
-
-        question = msg.get(
-            "question",
-            ""
-        )
-
-        answer = msg.get(
-            "answer",
-            ""
-        )
-
-        with st.chat_message("user"):
-            st.write(question)
-
-        with st.chat_message("assistant"):
-            st.write(answer)
-
-except Exception as e:
-
-    st.error(
-        f"History Error: {e}"
-    )
+    with st.chat_message("assistant"):
+        st.write(msg.get("answer",""))
 
 
 # --------------------------------------------------
-# CHAT INPUT
+# INPUT
 # --------------------------------------------------
-query = st.chat_input(
-    "Ask placement-related questions..."
-)
+query = st.chat_input("Ask placement-related questions...")
+
 
 final_query = (
     st.session_state.selected_question
@@ -232,7 +174,7 @@ final_query = (
 
 
 # --------------------------------------------------
-# QUESTION PROCESSING
+# PROCESS QUERY
 # --------------------------------------------------
 if final_query:
 
@@ -240,45 +182,36 @@ if final_query:
         st.write(final_query)
 
     try:
-
-        with st.spinner(
-            "🔍 Searching documents..."
-        ):
+        with st.spinner("🔍 Searching documents..."):
 
             answer, context = answer_question(
                 final_query,
                 session_id
             )
 
-        st.session_state.last_context = context
-
         with st.chat_message("assistant"):
             st.write(answer)
 
-        if context:
+        # Save for RAGAS
+        st.session_state.ragas_data["questions"].append(final_query)
+        st.session_state.ragas_data["answers"].append(answer)
+        st.session_state.ragas_data["contexts"].append([context])
 
-            with st.expander(
-                "📄 Retrieved Context"
-            ):
-                st.text(
-                    context[:3000]
-                )
+        # Context viewer
+        if context:
+            with st.expander("📄 Retrieved Context"):
+                st.text(context[:3000])
 
         st.session_state.selected_question = None
 
         st.rerun()
 
     except Exception as e:
-
-        st.error(
-            f"Error generating answer: {e}"
-        )
+        st.error(f"Error generating answer: {e}")
 
 
 # --------------------------------------------------
 # FOOTER
 # --------------------------------------------------
 st.markdown("---")
-st.caption(
-    "Placement Intelligence Assistant | RAG + Chroma + Streamlit"
-)
+st.caption("Placement Intelligence Assistant | RAG + Chroma + Streamlit + RAGAS")
